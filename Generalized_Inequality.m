@@ -1,205 +1,211 @@
-prompt1 = "Tell us the dimension of your observables? ";
-prompt2 = "Tell us the number of iterations? ";
-prompt3 = "Tell us the Matrix coefficient? ";
+n = input('Enter the dimension of your observables: ');
+iterations = input('Enter the number of iterations: ');
+M = input('Enter the Matrix coefficient: ');
+P=input('what are the eigenvalues of your operator? (in ascending order) ');
+prompt="how many times do you want to run the program?";
+Q=input(prompt);
 
-n = input(prompt1);
-itr = input(prompt2);
-M = input(prompt3);
-
-
-N = zeros(n,n);
-Mb = size(M,2); % number of measurement settings for Bob
-Ma = size(M,1); % number of measurement settings for Alice
-
-Xv = zeros(n,n,Ma); % Eigen vectors while optimizing Alice's operators
-Xd = zeros(n,n,Ma); % Eigen values while optimizing Alice's operators ?
-
-Yv = zeros(n,n,Mb); % Eigen vectors while optimizing Bob's operators
-Yd = zeros(n,n,Mb); % Eigen values while optimizing Bob's operators ?
-
-X_coef = zeros(n,n,Ma);
-X = zeros(n,n,Ma);
-
-Y_coef = zeros(n,n,Mb);
-Y = zeros(n,n,Mb);
-
-IE = zeros(n,n);
-
-b = zeros(n,n,Mb); % Diagonal matrices for Y with 0 or -1 for negative and 1 for positive values
-B = zeros(n, n, Mb); % Diagonal matrices for Bob's operators
-B(:,:,1) = eye(n);
-b(:,:,1)=eye(n);
-
-a = zeros(n,n,Ma); % Diagonal matrices for X with 0 or -1 for negative and 1 for positive values
-A = zeros(n,n,Ma); % Alice's operators
-A(:,:,1) = eye(n);
-a(:,:,1)=eye(n);
-
-
-
-
-% Initializing random diagonal matrices for Bob's operators
-for i = 2:Mb
-    pick=[-1,1];
-    initial_diag1 = randi([1,2],[1,n]);
-    for t=1:n
-        B(t,t,i)=pick(initial_diag1(1,t));
-    end
-end
-
-
-% Performing random unitary transformations for 100 iterations
-for q = 1:3
-    for nu = 2:Mb
-        P = RandomUnitary(n, 0);
-        B(:,:,nu) = P * B(:,:,nu) * P';
-    end
-end
-
-
-% Schmidt coefficient
-rawschmi = rand(n,1);
-eleschmi = normalize(rawschmi, "norm");
-lamda = diag(eleschmi);
-lamda_conj= lamda'; % conjugate leaving ther complex
-B_val = [];
-
-for k = 1:itr
-
-    % Optimizing Alice's measurement operator while fixing Bob's and state vector
-
-    % Step-1: Compute matrix X
-    for mu = 1:Ma
-        X_coef(:,:,mu) = zeros(n, n); % Reset X_coef for each mu
-        for nu = 1:Mb
-            X_coef(:,:,mu) = X_coef(:,:,mu) + M(mu, nu) * B(:,:,nu);
-        end
-        X(:,:,mu) = (lamda * (X_coef(:,:,mu)) * lamda_conj).';
-    end
-
-    % Diagonalizing X matrices(problematic for X=0 cases)
-    for mu = 2:Ma
-        [Xv(:,:,mu), Xd(:,:,mu)] = eig(X(:,:,mu));
-    end
-
-    % Step-2: Create diagonal matrices for X
-    for mu = 2:Ma
-        for i = 1:n
-            if real(Xd(i,i,mu)) >= 0
-                a(i,i,mu) = 1;
-            else
-                a(i,i,mu) = -1;
-            end
-        end
-        A(:,:,mu) = Xv(:,:,mu) * a(:,:,mu) * (Xv(:,:,mu)');
-    end
-
-    % Compute Alice's operators
-    N = zeros(n, n); % Reset N for each iteration
-    for mu = 1:Ma
-        N = N +  A(:,:,mu)*X(:,:,mu)  ;
-    end
-    val = abs(trace(N))
-    if val>3
-        Weirdlamda=lamda;
-        WeirdA=A;
-        WeirdB=B;
-    end
-    B_val(end+1) = val;
-
-    % Optimizing Bob's measurement operator while fixing Alice's and state vector
-
-    % Step-1: Compute matrix Y
-    for nu = 1:Mb
-        Y_coef(:,:,nu) = zeros(n, n); % Reset Y_coef for each nu
-        for mu = 1:Ma
-            Y_coef(:,:,nu) = Y_coef(:,:,nu) + M(mu, nu) * A(:,:,mu);
-        end
-        Y(:,:,nu) = (lamda * (Y_coef(:,:,nu)) * lamda_conj).';
-    end
-
-    % Diagonalizing Y matrices
-    for nu = 1:Mb
-        [Yv(:,:,nu), Yd(:,:,nu)] = eig(Y(:,:,nu));
-    end
-
-    % Step-2: Create diagonal matrices for Y
-    for nu = 2:Mb
-        for i = 1:n
-            if real(Yd(i, i, nu)) >= 0
-                b(i, i, nu) = 1;
-            else
-                b(i, i, nu) = -1;
-            end
-        end
-        B(:,:,nu) = Yv(:,:,nu) * b(:,:,nu) * (Yv(:,:,nu)');
-    end
-
-    % Compute Bob's operators
-    N = zeros(n, n); % Reset N for each iteration
-    for nu = 1:Mb
+L=[];
+function l=quantum_optimization(n,iterations,M,P)
+    % Get user inputs
+    
+    % Initialize variables
+    [Ma, Mb] = size(M);  % Measurement settings for Alice and Bob
+    [A, B, lambda] = initialize_operators(n, Ma, Mb,P);
+    
+    % Storage for optimization values
+    optimization_values = zeros(1, 3*iterations);
+    
+    % Main optimization loop
+    for k = 1:iterations
+        % Optimize Alice's operators
+        [A, current_val] = optimize_alice(A, B, M, lambda, n, Ma, Mb,P);
+        optimization_values(3*k-2) = current_val;
         
-        N = N + Y(:,:,nu) * B(:,:,nu);
+        % Optimize Bob's operators
+        [B, current_val] = optimize_bob(A, B, M, lambda, n, Ma, Mb,P);
+        optimization_values(3*k-1) = current_val;
+        
+        % Optimize state vector
+        [lambda, current_val] = optimize_state(A, B, M, n, Ma, Mb);
+        optimization_values(3*k) = current_val;
     end
-    val = abs(trace(N))
-    if val>3
-        Weirdlamda=lamda;
-        WeirdA=A;
-        WeirdB=B;
+    
+    % Final phase adjustment
+    [A, B, lambda] = adjust_phases(A, B, lambda, Ma, Mb, n);
+    
+    % Calculate final state
+    rho = calculate_final_state(lambda, n);
+    
+    % Plot results
+    %plot(1:3*iterations, optimization_values);
+    %title('Optimization Progress');
+    %xlabel('Iteration Step');
+    %ylabel('Objective Value');
+    l=optimization_values(end);
+
+end
+
+%% Helper Functions
+
+function [A, B, lambda] = initialize_operators(n, Ma, Mb,P)
+    % Initialize Alice's operators
+    A = zeros(n, n, Ma);
+    A(:,:,1) = eye(n);
+    
+    % Initialize Bob's operators with random unitaries
+    B = zeros(n, n, Mb);
+    B(:,:,1) = eye(n);
+    
+    for i = 2:Mb
+        % Create random diagonal matrix with ±1 eigenvalues
+        diag_vals = randi([1,2], [1,n]);
+        for t=1:n
+            B(t,t,i)=P(diag_vals(1,t));
+        end
+        % Apply random unitary transformations
+        for q = 1:3
+            G = RandomUnitary(n, 0);
+            B(:,:,i) = G * B(:,:,i) * G';
+        end
     end
-    B_val(end+1) = val;
+    
+    % Initialize Schmidt coefficients
+    lambda = diag(normalize(rand(n,1), "norm"));
+end
 
-    % Optimizing the state vector while fixing Alice's and Bob's operators
+function [A, current_val] = optimize_alice(A, B, M, lambda, n, Ma, Mb,P)
+    % Compute X matrices
+    X = zeros(n, n, Ma);
+    
+    for mu = 1:Ma
+        X_coef = zeros(n, n);
+        for nu = 1:Mb
+            X_coef = X_coef + M(mu, nu) * B(:,:,nu);
+        end
+        X(:,:,mu) = (lambda * X_coef * lambda').';
+    end
+    
+    % Diagonalize X matrices and update Alice's operators
+    for mu = 2:Ma
+        a=zeros(n);
+        [V, D] = eig(X(:,:,mu));
+        for i=1:n
+            if real(D(i,i))>0
+                a(i,i)=P(2);
+            else
+                a(i,i)=P(1);
+            end
+        
 
-    % Step-1: Define the Inequality matrix
-    IE = zeros(n, n); % Reset IE for each iteration
+        end
+        % Diagonal matrix with sign of eigenvalues
+        A(:,:,mu) = V * a * V';
+    end
+    
+    % Compute current optimization value
+    current_val = compute_objective(A, X, Ma, n);
+end
+
+function [B, current_val] = optimize_bob(A, B, M, lambda, n, Ma, Mb,P)
+    % Compute Y matrices
+    Y = zeros(n, n, Mb);
+    for nu = 1:Mb
+        Y_coef = zeros(n, n);
+        for mu = 1:Ma
+            Y_coef = Y_coef + M(mu, nu) * A(:,:,mu);
+        end
+        Y(:,:,nu) = (lambda * Y_coef * lambda').';
+    end
+    
+    % Diagonalize Y matrices and update Bob's operators
+    for nu = 2:Mb
+        b=zeros(n);
+        [V, D] = eig(Y(:,:,nu));
+        for i=1:n
+            if real(D(i,i))>0
+                b(i,i)=P(2);
+            else
+                b(i,i)=P(1);
+            end
+        end  
+        % Diagonal matrix with sign of eigenvalues
+        B(:,:,nu) = V * b * V';
+    end
+    
+    % Compute current optimization value
+    current_val = compute_objective(B, Y, Mb, n);
+end
+
+function [lambda, current_val] = optimize_state(A, B, M, n, Ma, Mb)
+    % Compute inequality matrix
+    IE = zeros(n, n);
     for mu = 1:Ma
         for nu = 1:Mb
             IE = IE + M(mu, nu) * (A(:,:,mu) .* B(:,:,nu));
         end
     end
-
+    [m1,e]=eig(IE);
+    [~, linear_index] = max(e(:));
+    [row, ~] = ind2sub(size(e), linear_index);
+    raw_schmidt=m1(:,row);
+    % Normalize and create diagonal matrix
+    lambda = diag(normalize(raw_schmidt, "norm"));
     
-    [IEv, IEd] = eig(IE);
-    IE_max = max(eig(IE));
-
-
-    for r = 1:n
-        if IE_max == IEd(r, r)
-            rawschmi = IEv(:, r);
+    % Compute current optimization value
+    Y = zeros(n, n, Mb);
+    Y_coef = zeros(n, n, Mb);
+    for nu = 1:Mb
+        for mu = 1:Ma
+            Y_coef(:,:,nu) = Y_coef(:,:,nu) + M(mu, nu) * A(:,:,mu);
         end
+        Y(:,:,nu) = (lambda * Y_coef(:,:,nu) * lambda').';
     end
-
-    lamda = diag(rawschmi);
-    lamda_conj=lamda';
+    
     N = zeros(n, n);
     for nu = 1:Mb
-        Y(:,:,nu) = (lamda * (Y_coef(:,:,nu)) * lamda_conj).';
         N = N + Y(:,:,nu) * B(:,:,nu);
     end
-    val = abs(trace(N))
-    if val>3
-        Weirdlamda=lamda;
-        WeirdA=A;
-        WeirdB=B;
+    current_val = abs(trace(N));
+end
+
+function val = compute_objective(operators, matrices, count, n)
+    N = zeros(n, n);
+    for i = 1:count
+        N = N + operators(:,:,i) * matrices(:,:,i);
     end
-    B_val(end+1) = val;
+    val = abs(trace(N));
 end
-K=cos(angle(rawschmi))+i*sin(angle(rawschmi));
-U=diag(K);
-for mu=1:Ma
-    A(:,:,mu)=U'*A(:,:,mu)*U;
+
+function [A, B, lambda] = adjust_phases(A, B, lambda, Ma, Mb, n)
+    % Remove complex phases from the state vector
+    phases = exp(1i * angle(diag(lambda)));
+    U = diag(conj(phases));
+    
+    for mu = 1:Ma
+        A(:,:,mu) = U' * A(:,:,mu) * U;
+    end
+    
+    for nu = 1:Mb
+        B(:,:,nu) = U' * B(:,:,nu) * U;
+    end
+    
+    lambda = abs(lambda);
 end
-for nu=1:Mb
-    B(:,:,nu)=U'*B(:,:,nu)*U;
+
+function rho = calculate_final_state(lambda, n)
+    % Create Schmidt vector
+    schmidt_vector = zeros(n*n, 1);
+    for c = 1:n
+        schmidt_vector(n*(c-1)+c, 1) = lambda(c,c);
+    end
+    
+    % Create density matrix
+    rho = schmidt_vector * schmidt_vector';
 end
-lamda=abs(lamda);
-rho_a=lamda*lamda;
-rho_b=lamda*lamda;
-badschmi=zeros(n*n,1);
-for c=1:n
-    badschmi(n*(c-1)+c,1)=lamda(c,c);
+for l=1:Q
+    L(end+1)=quantum_optimization(n,iterations,M,P);
+
 end
-rho=badschmi*badschmi';
-H = 1:3*itr;
-plot(H, B_val);
+J=1:Q;
+plot(J,L);
